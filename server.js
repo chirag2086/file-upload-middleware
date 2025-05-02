@@ -10,7 +10,7 @@ const port = process.env.PORT || 10000;
 
 app.use(express.json({ limit: '20mb' }));
 
-// SAP Login Function
+// ✅ SAP Login
 async function loginToSAP() {
   const loginResponse = await axios.post(
     'https://sap.uneecopscloud.com:50000/b1s/v1/Login',
@@ -31,7 +31,12 @@ async function loginToSAP() {
   return `${b1session}; ${routeId}`;
 }
 
-// Upload Route
+// ✅ Health Check (GET /)
+app.get('/', (req, res) => {
+  res.send('✅ Middleware is running and ready to accept uploads.');
+});
+
+// ✅ Upload Endpoint
 app.post('/upload', async (req, res) => {
   try {
     const { fileName, fileContent } = req.body;
@@ -39,29 +44,33 @@ app.post('/upload', async (req, res) => {
       return res.status(400).json({ error: 'Missing fileName or fileContent' });
     }
 
+    console.log(`📥 Received file: ${fileName}`);
     const buffer = Buffer.from(fileContent, 'base64');
+
     const tempPath = path.join(os.tmpdir(), fileName);
     fs.writeFileSync(tempPath, buffer);
+    console.log(`📝 File written to: ${tempPath}`);
 
     const mimeType = mime.lookup(fileName) || 'application/octet-stream';
     const boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW';
     const eol = '\r\n';
 
+    // 🔧 Manual multipart body (like Postman)
     const head =
       `--${boundary}${eol}` +
       `Content-Disposition: form-data; name=""; filename="${fileName}"${eol}` +
       `Content-Type: ${mimeType}${eol}${eol}`;
-
     const tail = `${eol}--${boundary}--${eol}`;
 
-    const fileStream = fs.readFileSync(tempPath);
+    const fileBuffer = fs.readFileSync(tempPath);
     const bodyBuffer = Buffer.concat([
       Buffer.from(head, 'utf8'),
-      fileStream,
+      fileBuffer,
       Buffer.from(tail, 'utf8')
     ]);
 
     const sapCookie = await loginToSAP();
+    console.log('🚀 Uploading to SAP /Attachments2...');
 
     const response = await axios.post(
       'https://sap.uneecopscloud.com:50000/b1s/v1/Attachments2',
@@ -78,7 +87,9 @@ app.post('/upload', async (req, res) => {
     );
 
     fs.unlinkSync(tempPath);
+    console.log('✅ Upload successful:', response.data);
     res.status(200).json(response.data);
+
   } catch (err) {
     console.error('❌ Upload Error');
     if (err.response) {
@@ -92,6 +103,7 @@ app.post('/upload', async (req, res) => {
   }
 });
 
+// ✅ Start server
 app.listen(port, () => {
-  console.log(`🚀 Middleware running on port ${port}`);
+  console.log(`🚀 Middleware listening on port ${port}`);
 });
