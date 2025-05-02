@@ -32,7 +32,7 @@ async function loginToSAP() {
 
 // Health Check Route
 app.get('/', (req, res) => {
-  res.send('✅ Middleware is running and ready to accept uploads.');
+  res.send('✅ Middleware is running and ready to accept uploads c.');
 });
 
 // File Upload Route
@@ -49,7 +49,7 @@ app.post('/upload', async (req, res) => {
     console.log(`📦 File size (bytes): ${buffer.length}`);
 
     const form = new FormData();
-    form.append('', buffer, {
+    form.append('file', buffer, {
       filename: fileName,
       contentType: 'application/octet-stream'
     });
