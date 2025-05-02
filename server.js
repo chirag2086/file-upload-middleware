@@ -46,12 +46,16 @@ app.post('/upload', async (req, res) => {
       return res.status(400).json({ error: 'Missing fileName or fileContent' });
     }
 
+    console.log(`📥 Received file: ${fileName}`);
     const buffer = Buffer.from(fileContent, 'base64');
     const tempPath = path.join(os.tmpdir(), fileName);
     fs.writeFileSync(tempPath, buffer);
 
     const form = new FormData();
-    form.append('', fs.createReadStream(tempPath)); // ✅ Like Postman (no filename, no contentType override)
+    form.append('files', fs.createReadStream(tempPath), {
+      filename: fileName,
+      contentType: mime.lookup(fileName) || 'application/octet-stream'
+    });
 
     const cookie = await loginToSAP();
 
@@ -69,6 +73,7 @@ app.post('/upload', async (req, res) => {
     );
 
     fs.unlinkSync(tempPath);
+    console.log('✅ Upload successful:', response.data);
     res.status(200).json(response.data);
   } catch (err) {
     console.error('❌ Upload Failed');
