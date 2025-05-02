@@ -30,7 +30,7 @@ async function loginToSAP() {
   return `${b1session}; ${routeId}`;
 }
 
-// Health Check
+// Health Check Route
 app.get('/', (req, res) => {
   res.send('✅ Middleware is running and ready to accept uploads chirag.');
 });
@@ -51,7 +51,8 @@ app.post('/upload', async (req, res) => {
     const form = new FormData();
     form.append('', buffer, {
       filename: fileName,
-      contentType: 'application/octet-stream'
+      contentType: 'application/octet-stream',
+      header: `Content-Disposition: form-data; name=""; filename="${fileName}"`
     });
 
     const sapCookie = await loginToSAP();
