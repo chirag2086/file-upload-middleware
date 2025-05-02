@@ -4,6 +4,7 @@ const FormData = require('form-data');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const mime = require('mime-types'); // for content-type detection
 
 const app = express();
 const port = process.env.PORT || 10000;
@@ -33,7 +34,7 @@ async function loginToSAP() {
   return `${b1session}; ${routeId}`;
 }
 
-// Health Check Route
+// Health Check
 app.get('/', (req, res) => {
   res.send('✅ Middleware is running and ready to accept uploads chirag.');
 });
@@ -51,17 +52,23 @@ app.post('/upload', async (req, res) => {
     const buffer = Buffer.from(fileContent, 'base64');
     console.log(`📦 File size (bytes): ${buffer.length}`);
 
-    // 1️⃣ Write file to temp location
+    // 1️⃣ Write file to temp
     const tempPath = path.join(os.tmpdir(), fileName);
     fs.writeFileSync(tempPath, buffer);
     console.log(`📝 File written to temp: ${tempPath}`);
 
-    // 2️⃣ Prepare form data
+    // 2️⃣ Detect correct content-type
+    const mimeType = mime.lookup(fileName) || 'application/octet-stream';
+    console.log(`📄 Detected content-type: ${mimeType}`);
+
+    // 3️⃣ Create FormData
     const form = new FormData();
     form.append('', fs.createReadStream(tempPath), {
-      filename: fileName
+      filename: fileName,
+      contentType: mimeType
     });
 
+    // 4️⃣ Upload to SAP
     const sapCookie = await loginToSAP();
     console.log('🚀 Uploading to SAP /Attachments2...');
 
@@ -80,7 +87,7 @@ app.post('/upload', async (req, res) => {
 
     console.log('✅ SAP upload success:', sapResponse.data);
 
-    // 🧹 Optional: delete the temp file
+    // 5️⃣ Clean temp file
     fs.unlinkSync(tempPath);
     console.log(`🗑️ Temp file deleted: ${tempPath}`);
 
