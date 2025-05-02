@@ -1,6 +1,9 @@
 const express = require('express');
 const axios = require('axios');
 const FormData = require('form-data');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const app = express();
 const port = process.env.PORT || 10000;
@@ -32,7 +35,7 @@ async function loginToSAP() {
 
 // Health Check Route
 app.get('/', (req, res) => {
-  res.send('✅ Middleware is running and ready to accept uploads chirag.');
+  res.send('✅ Middleware is running and ready to accept uploads.');
 });
 
 // File Upload Route
@@ -48,8 +51,14 @@ app.post('/upload', async (req, res) => {
     const buffer = Buffer.from(fileContent, 'base64');
     console.log(`📦 File size (bytes): ${buffer.length}`);
 
+    // 1️⃣ Write file to temp location
+    const tempPath = path.join(os.tmpdir(), fileName);
+    fs.writeFileSync(tempPath, buffer);
+    console.log(`📝 File written to temp: ${tempPath}`);
+
+    // 2️⃣ Prepare form data
     const form = new FormData();
-    form.append('', buffer, {
+    form.append('', fs.createReadStream(tempPath), {
       filename: fileName
     });
 
@@ -70,6 +79,11 @@ app.post('/upload', async (req, res) => {
     );
 
     console.log('✅ SAP upload success:', sapResponse.data);
+
+    // 🧹 Optional: delete the temp file
+    fs.unlinkSync(tempPath);
+    console.log(`🗑️ Temp file deleted: ${tempPath}`);
+
     res.status(200).json(sapResponse.data);
   } catch (err) {
     console.error('❌ Upload Error');
