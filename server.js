@@ -1,6 +1,4 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
 const axios = require('axios');
 const FormData = require('form-data');
 
@@ -9,7 +7,7 @@ const port = process.env.PORT || 10000;
 
 app.use(express.json({ limit: '20mb' }));
 
-// 1️⃣ SAP LOGIN FUNCTION
+// SAP Login Function
 async function loginToSAP() {
   console.log('🔐 Logging in to SAP...');
   const loginResponse = await axios.post(
@@ -32,12 +30,12 @@ async function loginToSAP() {
   return `${b1session}; ${routeId}`;
 }
 
-// 2️⃣ HEALTH CHECK
+// Health Check
 app.get('/', (req, res) => {
   res.send('✅ Middleware is running and ready to accept uploads.');
 });
 
-// 3️⃣ FILE UPLOAD ROUTE
+// File Upload Route
 app.post('/upload', async (req, res) => {
   try {
     const { fileName, fileContent } = req.body;
@@ -50,14 +48,11 @@ app.post('/upload', async (req, res) => {
     const buffer = Buffer.from(fileContent, 'base64');
     console.log(`📦 File size (bytes): ${buffer.length}`);
 
-    const tempDir = path.join(__dirname, 'temp');
-    const tempPath = path.join(tempDir, fileName);
-    fs.mkdirSync(tempDir, { recursive: true });
-    fs.writeFileSync(tempPath, buffer);
-    console.log(`📄 Saved to temp: ${tempPath}`);
-
     const form = new FormData();
-    form.append('file', fs.createReadStream(tempPath), fileName);
+    form.append('files', buffer, {
+      filename: fileName,
+      contentType: 'application/octet-stream'
+    });
 
     const sapCookie = await loginToSAP();
     console.log('🚀 Uploading to SAP /Attachments2...');
@@ -75,9 +70,7 @@ app.post('/upload', async (req, res) => {
       }
     );
 
-    fs.unlinkSync(tempPath);
     console.log('✅ SAP upload success:', sapResponse.data);
-
     res.status(200).json(sapResponse.data);
   } catch (err) {
     console.error('❌ Upload Error');
@@ -95,7 +88,7 @@ app.post('/upload', async (req, res) => {
   }
 });
 
-// 6️⃣ START SERVER
+// Start Server
 app.listen(port, () => {
   console.log(`🚀 Middleware listening on port ${port}`);
 });
