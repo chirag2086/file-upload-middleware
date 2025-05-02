@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -12,6 +11,7 @@ app.use(express.json({ limit: '20mb' }));
 
 // 1️⃣ SAP LOGIN FUNCTION
 async function loginToSAP() {
+  console.log('🔐 Logging in to SAP...');
   const loginResponse = await axios.post(
     'https://sap.uneecopscloud.com:50000/b1s/v1/Login',
     {
@@ -27,12 +27,14 @@ async function loginToSAP() {
   const cookies = loginResponse.headers['set-cookie'];
   const b1session = cookies.find(c => c.includes('B1SESSION'));
   const routeId = cookies.find(c => c.includes('ROUTEID'));
+
+  console.log('✅ SAP session established');
   return `${b1session}; ${routeId}`;
 }
 
 // 2️⃣ HEALTH CHECK
 app.get('/', (req, res) => {
-  res.send('✅ Middleware ready to upload files from Salesforce to SAP.');
+  res.send('✅ Middleware is running and ready to accept uploads.');
 });
 
 // 3️⃣ FILE UPLOAD ROUTE
@@ -44,20 +46,22 @@ app.post('/upload', async (req, res) => {
       return res.status(400).json({ error: 'Missing fileName or fileContent' });
     }
 
+    console.log(`📥 Received file: ${fileName}`);
     const buffer = Buffer.from(fileContent, 'base64');
+    console.log(`📦 File size (bytes): ${buffer.length}`);
+
     const tempDir = path.join(__dirname, 'temp');
     const tempPath = path.join(tempDir, fileName);
-
     fs.mkdirSync(tempDir, { recursive: true });
     fs.writeFileSync(tempPath, buffer);
+    console.log(`📄 Saved to temp: ${tempPath}`);
 
     const form = new FormData();
     form.append('file', fs.createReadStream(tempPath), fileName);
 
-    // 4️⃣ Login to SAP and get cookies
     const sapCookie = await loginToSAP();
+    console.log('🚀 Uploading to SAP /Attachments2...');
 
-    // 5️⃣ Upload file to SAP Attachments2
     const sapResponse = await axios.post(
       'https://sap.uneecopscloud.com:50000/b1s/v1/Attachments2',
       form,
@@ -71,11 +75,23 @@ app.post('/upload', async (req, res) => {
       }
     );
 
-    fs.unlinkSync(tempPath); // Cleanup
+    fs.unlinkSync(tempPath);
+    console.log('✅ SAP upload success:', sapResponse.data);
+
     res.status(200).json(sapResponse.data);
   } catch (err) {
-    console.error('❌ Upload Error:', err);
-    res.status(500).json({ error: 'Upload failed', details: err.message });
+    console.error('❌ Upload Error');
+    if (err.response) {
+      console.error('📛 SAP Status:', err.response.status);
+      console.error('📄 SAP Error Response:', err.response.data);
+    } else {
+      console.error('📄 Error Message:', err.message);
+    }
+
+    res.status(500).json({
+      error: 'Upload failed',
+      details: err.response?.data || err.message
+    });
   }
 });
 
