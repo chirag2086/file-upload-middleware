@@ -4,13 +4,14 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const mime = require('mime-types');
+const FormData = require('form-data');
 
 const app = express();
 const port = process.env.PORT || 10000;
 
 app.use(express.json({ limit: '20mb' }));
 
-// ✅ SAP Login
+// SAP Login Function
 async function loginToSAP() {
   const loginResponse = await axios.post(
     'https://sap.uneecopscloud.com:50000/b1s/v1/Login',
@@ -31,55 +32,36 @@ async function loginToSAP() {
   return `${b1session}; ${routeId}`;
 }
 
-// ✅ Health Check (GET /)
+// GET /
 app.get('/', (req, res) => {
-  res.send('✅ Middleware is running and ready to accept uploads.');
+  res.send('✅ Middleware is alive.');
 });
 
-// ✅ Upload Endpoint
+// Upload File
 app.post('/upload', async (req, res) => {
   try {
     const { fileName, fileContent } = req.body;
+
     if (!fileName || !fileContent) {
       return res.status(400).json({ error: 'Missing fileName or fileContent' });
     }
 
-    console.log(`📥 Received file: ${fileName}`);
     const buffer = Buffer.from(fileContent, 'base64');
-
     const tempPath = path.join(os.tmpdir(), fileName);
     fs.writeFileSync(tempPath, buffer);
-    console.log(`📝 File written to: ${tempPath}`);
 
-    const mimeType = mime.lookup(fileName) || 'application/octet-stream';
-    const boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW';
-    const eol = '\r\n';
+    const form = new FormData();
+    form.append('', fs.createReadStream(tempPath)); // ✅ Like Postman (no filename, no contentType override)
 
-    // 🔧 Manual multipart body (like Postman)
-    const head =
-      `--${boundary}${eol}` +
-      `Content-Disposition: form-data; name=""; filename="${fileName}"${eol}` +
-      `Content-Type: ${mimeType}${eol}${eol}`;
-    const tail = `${eol}--${boundary}--${eol}`;
-
-    const fileBuffer = fs.readFileSync(tempPath);
-    const bodyBuffer = Buffer.concat([
-      Buffer.from(head, 'utf8'),
-      fileBuffer,
-      Buffer.from(tail, 'utf8')
-    ]);
-
-    const sapCookie = await loginToSAP();
-    console.log('🚀 Uploading to SAP /Attachments2...');
+    const cookie = await loginToSAP();
 
     const response = await axios.post(
       'https://sap.uneecopscloud.com:50000/b1s/v1/Attachments2',
-      bodyBuffer,
+      form,
       {
         headers: {
-          'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          'Content-Length': bodyBuffer.length,
-          'Cookie': sapCookie
+          ...form.getHeaders(),
+          Cookie: cookie
         },
         maxContentLength: Infinity,
         maxBodyLength: Infinity
@@ -87,23 +69,25 @@ app.post('/upload', async (req, res) => {
     );
 
     fs.unlinkSync(tempPath);
-    console.log('✅ Upload successful:', response.data);
     res.status(200).json(response.data);
-
   } catch (err) {
-    console.error('❌ Upload Error');
+    console.error('❌ Upload Failed');
     if (err.response) {
-      console.error('📛 SAP Status:', err.response.status);
-      console.error('📄 SAP Error:', err.response.data);
+      console.error('SAP Status:', err.response.status);
+      console.error('SAP Error:', err.response.data);
+      res.status(500).json({
+        error: 'Upload failed',
+        details: err.response.data
+      });
+    } else {
+      res.status(500).json({
+        error: 'Upload failed',
+        details: err.message
+      });
     }
-    res.status(500).json({
-      error: 'Upload failed',
-      details: err.response?.data || err.message
-    });
   }
 });
 
-// ✅ Start server
 app.listen(port, () => {
-  console.log(`🚀 Middleware listening on port ${port}`);
+  console.log(`🚀 Server started on port ${port}`);
 });
