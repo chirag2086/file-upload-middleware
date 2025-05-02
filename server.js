@@ -8,13 +8,34 @@ const FormData = require('form-data');
 const app = express();
 const port = process.env.PORT || 10000;
 
-app.use(express.json({ limit: '20mb' })); // To handle large file payloads
+app.use(express.json({ limit: '20mb' }));
 
+// 1️⃣ SAP LOGIN FUNCTION
+async function loginToSAP() {
+  const loginResponse = await axios.post(
+    'https://sap.uneecopscloud.com:50000/b1s/v1/Login',
+    {
+      UserName: 'salesforce',
+      Password: 'utl1662',
+      CompanyDB: 'sftest'
+    },
+    {
+      headers: { 'Content-Type': 'application/json' }
+    }
+  );
+
+  const cookies = loginResponse.headers['set-cookie'];
+  const b1session = cookies.find(c => c.includes('B1SESSION'));
+  const routeId = cookies.find(c => c.includes('ROUTEID'));
+  return `${b1session}; ${routeId}`;
+}
+
+// 2️⃣ HEALTH CHECK
 app.get('/', (req, res) => {
   res.send('✅ Middleware ready to upload files from Salesforce to SAP.');
 });
 
-// POST /upload - from Salesforce
+// 3️⃣ FILE UPLOAD ROUTE
 app.post('/upload', async (req, res) => {
   try {
     const { fileName, fileContent } = req.body;
@@ -23,43 +44,42 @@ app.post('/upload', async (req, res) => {
       return res.status(400).json({ error: 'Missing fileName or fileContent' });
     }
 
-    // 1. Decode the base64 content
     const buffer = Buffer.from(fileContent, 'base64');
+    const tempDir = path.join(__dirname, 'temp');
+    const tempPath = path.join(tempDir, fileName);
 
-    // 2. Write to temporary path
-    const tempPath = path.join(__dirname, 'temp', fileName);
-    fs.mkdirSync(path.join(__dirname, 'temp'), { recursive: true });
+    fs.mkdirSync(tempDir, { recursive: true });
     fs.writeFileSync(tempPath, buffer);
 
-    // 3. Prepare form-data
     const form = new FormData();
     form.append('file', fs.createReadStream(tempPath), fileName);
 
-    // 4. Send to SAP (with your SAP session cookie)
+    // 4️⃣ Login to SAP and get cookies
+    const sapCookie = await loginToSAP();
+
+    // 5️⃣ Upload file to SAP Attachments2
     const sapResponse = await axios.post(
       'https://sap.uneecopscloud.com:50000/b1s/v1/Attachments2',
       form,
       {
         headers: {
           ...form.getHeaders(),
-          Cookie: 'B1SESSION=your-session-id; ROUTEID=.node8' // Replace with your real session
+          Cookie: sapCookie
         },
         maxContentLength: Infinity,
         maxBodyLength: Infinity
       }
     );
 
-    // 5. Clean up
-    fs.unlinkSync(tempPath);
-
-    // 6. Return SAP response to Salesforce
+    fs.unlinkSync(tempPath); // Cleanup
     res.status(200).json(sapResponse.data);
   } catch (err) {
-    console.error('❌ Upload Error:', err.message);
+    console.error('❌ Upload Error:', err);
     res.status(500).json({ error: 'Upload failed', details: err.message });
   }
 });
 
+// 6️⃣ START SERVER
 app.listen(port, () => {
   console.log(`🚀 Middleware listening on port ${port}`);
 });
