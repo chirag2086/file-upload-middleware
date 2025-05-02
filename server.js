@@ -49,7 +49,7 @@ app.post('/upload', async (req, res) => {
     console.log(`📦 File size (bytes): ${buffer.length}`);
 
     const form = new FormData();
-    form.append('files', buffer, {
+    form.append('', buffer, {
       filename: fileName,
       contentType: 'application/octet-stream'
     });
