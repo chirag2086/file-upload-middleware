@@ -1,10 +1,9 @@
 const express = require('express');
 const axios = require('axios');
-const FormData = require('form-data');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const mime = require('mime-types'); // for content-type detection
+const mime = require('mime-types');
 
 const app = express();
 const port = process.env.PORT || 10000;
@@ -13,7 +12,6 @@ app.use(express.json({ limit: '20mb' }));
 
 // SAP Login Function
 async function loginToSAP() {
-  console.log('🔐 Logging in to SAP...');
   const loginResponse = await axios.post(
     'https://sap.uneecopscloud.com:50000/b1s/v1/Login',
     {
@@ -30,77 +28,63 @@ async function loginToSAP() {
   const b1session = cookies.find(c => c.includes('B1SESSION'));
   const routeId = cookies.find(c => c.includes('ROUTEID'));
 
-  console.log('✅ SAP session established');
   return `${b1session}; ${routeId}`;
 }
 
-// Health Check
-app.get('/', (req, res) => {
-  res.send('✅ Middleware is running and ready to accept uploads chirag.');
-});
-
-// File Upload Route
+// Upload Route
 app.post('/upload', async (req, res) => {
   try {
     const { fileName, fileContent } = req.body;
-
     if (!fileName || !fileContent) {
       return res.status(400).json({ error: 'Missing fileName or fileContent' });
     }
 
-    console.log(`📥 Received file: ${fileName}`);
     const buffer = Buffer.from(fileContent, 'base64');
-    console.log(`📦 File size (bytes): ${buffer.length}`);
-
-    // 1️⃣ Write file to temp
     const tempPath = path.join(os.tmpdir(), fileName);
     fs.writeFileSync(tempPath, buffer);
-    console.log(`📝 File written to temp: ${tempPath}`);
 
-    // 2️⃣ Detect correct content-type
     const mimeType = mime.lookup(fileName) || 'application/octet-stream';
-    console.log(`📄 Detected content-type: ${mimeType}`);
+    const boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW';
+    const eol = '\r\n';
 
-    // 3️⃣ Create FormData
-    const form = new FormData();
-    form.append('', fs.createReadStream(tempPath), {
-      filename: fileName,
-      contentType: mimeType
-    });
+    const head =
+      `--${boundary}${eol}` +
+      `Content-Disposition: form-data; name=""; filename="${fileName}"${eol}` +
+      `Content-Type: ${mimeType}${eol}${eol}`;
 
-    // 4️⃣ Upload to SAP
+    const tail = `${eol}--${boundary}--${eol}`;
+
+    const fileStream = fs.readFileSync(tempPath);
+    const bodyBuffer = Buffer.concat([
+      Buffer.from(head, 'utf8'),
+      fileStream,
+      Buffer.from(tail, 'utf8')
+    ]);
+
     const sapCookie = await loginToSAP();
-    console.log('🚀 Uploading to SAP /Attachments2...');
 
-    const sapResponse = await axios.post(
+    const response = await axios.post(
       'https://sap.uneecopscloud.com:50000/b1s/v1/Attachments2',
-      form,
+      bodyBuffer,
       {
         headers: {
-          ...form.getHeaders(),
-          Cookie: sapCookie
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': bodyBuffer.length,
+          'Cookie': sapCookie
         },
         maxContentLength: Infinity,
         maxBodyLength: Infinity
       }
     );
 
-    console.log('✅ SAP upload success:', sapResponse.data);
-
-    // 5️⃣ Clean temp file
     fs.unlinkSync(tempPath);
-    console.log(`🗑️ Temp file deleted: ${tempPath}`);
-
-    res.status(200).json(sapResponse.data);
+    res.status(200).json(response.data);
   } catch (err) {
     console.error('❌ Upload Error');
     if (err.response) {
       console.error('📛 SAP Status:', err.response.status);
-      console.error('📄 SAP Error Response:', err.response.data);
-    } else {
-      console.error('📄 Error Message:', err.message);
+      console.error('📄 SAP Error:', err.response.data);
     }
-
     res.status(500).json({
       error: 'Upload failed',
       details: err.response?.data || err.message
@@ -108,7 +92,6 @@ app.post('/upload', async (req, res) => {
   }
 });
 
-// Start Server
 app.listen(port, () => {
-  console.log(`🚀 Middleware listening on port ${port}`);
+  console.log(`🚀 Middleware running on port ${port}`);
 });
