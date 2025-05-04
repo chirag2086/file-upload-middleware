@@ -3,7 +3,6 @@ const axios = require('axios');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const mime = require('mime-types');
 const FormData = require('form-data');
 
 const app = express();
@@ -11,33 +10,33 @@ const port = process.env.PORT || 10000;
 
 app.use(express.json({ limit: '20mb' }));
 
-// SAP Login Function
+// SAP Login
 async function loginToSAP() {
-  const loginResponse = await axios.post(
+  const res = await axios.post(
     'https://sap.uneecopscloud.com:50000/b1s/v1/Login',
     {
       UserName: 'salesforce',
       Password: 'utl1662',
-      CompanyDB: 'sftest'
+      CompanyDB: 'sftest',
     },
     {
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
     }
   );
 
-  const cookies = loginResponse.headers['set-cookie'];
-  const b1session = cookies.find(c => c.includes('B1SESSION'));
-  const routeId = cookies.find(c => c.includes('ROUTEID'));
+  const cookies = res.headers['set-cookie'];
+  const b1 = cookies.find(c => c.includes('B1SESSION')).split(';')[0];
+  const route = cookies.find(c => c.includes('ROUTEID')).split(';')[0];
 
-  return `${b1session}; ${routeId}`;
+  return `${b1}; ${route}`;
 }
 
-// GET /
+// Health Check
 app.get('/', (req, res) => {
-  res.send('✅ Middleware is alive.');
+  res.send('✅ Middleware working.');
 });
 
-// Upload File
+// File Upload
 app.post('/upload', async (req, res) => {
   try {
     const { fileName, fileContent } = req.body;
@@ -46,16 +45,11 @@ app.post('/upload', async (req, res) => {
       return res.status(400).json({ error: 'Missing fileName or fileContent' });
     }
 
-    console.log(`📥 Received file: ${fileName}`);
-    const buffer = Buffer.from(fileContent, 'base64');
     const tempPath = path.join(os.tmpdir(), fileName);
-    fs.writeFileSync(tempPath, buffer);
+    fs.writeFileSync(tempPath, Buffer.from(fileContent, 'base64'));
 
     const form = new FormData();
-    form.append('files', fs.createReadStream(tempPath), {
-      filename: fileName,
-      contentType: mime.lookup(fileName) || 'application/octet-stream'
-    });
+    form.append('', fs.createReadStream(tempPath)); // ⬅️ no name field
 
     const cookie = await loginToSAP();
 
@@ -73,26 +67,19 @@ app.post('/upload', async (req, res) => {
     );
 
     fs.unlinkSync(tempPath);
-    console.log('✅ Upload successful:', response.data);
     res.status(200).json(response.data);
   } catch (err) {
     console.error('❌ Upload Failed');
     if (err.response) {
-      console.error('SAP Status:', err.response.status);
-      console.error('SAP Error:', err.response.data);
-      res.status(500).json({
-        error: 'Upload failed',
-        details: err.response.data
-      });
+      console.error('Status:', err.response.status);
+      console.error('Data:', err.response.data);
+      res.status(500).json({ error: 'Upload failed', details: err.response.data });
     } else {
-      res.status(500).json({
-        error: 'Upload failed',
-        details: err.message
-      });
+      res.status(500).json({ error: 'Upload failed', details: err.message });
     }
   }
 });
 
 app.listen(port, () => {
-  console.log(`🚀 Server started on port ${port}`);
+  console.log(`🚀 Server running on port ${port}`);
 });
