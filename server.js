@@ -10,33 +10,33 @@ const port = process.env.PORT || 10000;
 
 app.use(express.json({ limit: '20mb' }));
 
-// SAP Login
+// 🔐 SAP Login
 async function loginToSAP() {
-  const res = await axios.post(
+  const loginResponse = await axios.post(
     'https://sap.uneecopscloud.com:50000/b1s/v1/Login',
     {
       UserName: 'salesforce',
       Password: 'utl1662',
-      CompanyDB: 'sftest',
+      CompanyDB: 'sftest'
     },
     {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' }
     }
   );
 
-  const cookies = res.headers['set-cookie'];
-  const b1 = cookies.find(c => c.includes('B1SESSION')).split(';')[0];
-  const route = cookies.find(c => c.includes('ROUTEID')).split(';')[0];
+  const cookies = loginResponse.headers['set-cookie'];
+  const b1session = cookies.find(c => c.includes('B1SESSION'));
+  const routeId = cookies.find(c => c.includes('ROUTEID'));
 
-  return `${b1}; ${route}`;
+  return `${b1session}; ${routeId}`;
 }
 
-// Health Check
+// 🌐 GET /
 app.get('/', (req, res) => {
-  res.send('✅ Middleware working.');
+  res.send('✅ Middleware is running.');
 });
 
-// File Upload
+// 📤 File Upload
 app.post('/upload', async (req, res) => {
   try {
     const { fileName, fileContent } = req.body;
@@ -45,13 +45,15 @@ app.post('/upload', async (req, res) => {
       return res.status(400).json({ error: 'Missing fileName or fileContent' });
     }
 
+    const buffer = Buffer.from(fileContent, 'base64');
     const tempPath = path.join(os.tmpdir(), fileName);
-    fs.writeFileSync(tempPath, Buffer.from(fileContent, 'base64'));
+    fs.writeFileSync(tempPath, buffer);
 
     const form = new FormData();
-    form.append('', fs.createReadStream(tempPath)); // ⬅️ no name field
+    form.append('', fs.createReadStream(tempPath), { filename: fileName }); // 👈 Explicit filename is critical
 
     const cookie = await loginToSAP();
+    await new Promise(resolve => setTimeout(resolve, 1000)); // ⏳ Give SAP session time to settle
 
     const response = await axios.post(
       'https://sap.uneecopscloud.com:50000/b1s/v1/Attachments2',
@@ -69,17 +71,23 @@ app.post('/upload', async (req, res) => {
     fs.unlinkSync(tempPath);
     res.status(200).json(response.data);
   } catch (err) {
-    console.error('❌ Upload Failed');
+    console.error('❌ Upload failed');
     if (err.response) {
-      console.error('Status:', err.response.status);
-      console.error('Data:', err.response.data);
-      res.status(500).json({ error: 'Upload failed', details: err.response.data });
+      console.error('SAP Error:', err.response.status, err.response.data);
+      res.status(500).json({
+        error: 'Upload failed',
+        details: err.response.data
+      });
     } else {
-      res.status(500).json({ error: 'Upload failed', details: err.message });
+      res.status(500).json({
+        error: 'Upload failed',
+        details: err.message
+      });
     }
   }
 });
 
+// 🚀 Start server
 app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
+  console.log(`✅ Middleware server running at http://localhost:${port}`);
 });
